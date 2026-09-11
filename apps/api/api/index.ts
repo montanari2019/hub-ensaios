@@ -1,5 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+// Import explícito, só pelo efeito colateral: o TypeORM carrega o driver
+// Postgres via `require(driverPackage)` com o nome computado em runtime, e
+// o file-tracer da Vercel não consegue seguir esse `require` dinâmico pra
+// saber que `pg` precisa ir junto no bundle da função — sem isso, a função
+// falha em produção com "DriverPackageNotInstalledError: Postgres package
+// has not been found installed" mesmo com `pg` em dependencies.
+import 'pg';
 import { createApp } from '../src/main.js';
 
 type ExpressHandler = (req: IncomingMessage, res: ServerResponse) => void;
