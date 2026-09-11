@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/:path*",
-            "destination": "https://hub-ensaios-api.vercel.app/:path*"
+            "destination": "https://hub-ensaios-api-ikaro-montanaris-projects.vercel.app/:path*"
         },
         { "source": "/(.*)", "destination": "/index.html" }
     ]
