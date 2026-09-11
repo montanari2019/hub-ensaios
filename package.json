@@ -1,0 +1,16 @@
+{
+  "name": "hub-de-ensaios",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"yarn workspace web dev\" \"yarn workspace api start:dev\"",
+    "dev:web": "yarn workspace web dev",
+    "dev:api": "yarn workspace api start:dev",
+    "build": "yarn workspace web build && yarn workspace api build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

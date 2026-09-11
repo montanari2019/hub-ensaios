@@ -1,0 +1,126 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  Produto: "hub de ensaios" — app web para banda/equipe de louvor ouvir faixas
+  multicanal (stems) de uma música, isolando/ajustando canais individualmente
+  durante a reprodução, no estilo do app Moises (stem isolation player).
+
+  Fluxo principal: usuário sobe um .zip contendo os arquivos de áudio de uma
+  track (cada arquivo = um canal/instrumento, ex: Bateria.wav, Baixo.wav,
+  Voz.wav). O app extrai os canais, lista a track numa biblioteca local, e ao
+  abrir a track mostra um "channel strip" por canal (mute, solo, volume) com
+  um transporte único (play/pause/seek) que toca todos os canais em sincronia.
+
+  Stack: monorepo com Yarn workspaces (sem Turborepo/Nx) dentro deste mesmo
+  diretório, tracks-gambira. `apps/web`: o frontend React + TypeScript + Vite
+  já existente (biblioteca de tracks + player com Web Audio API). `apps/api`:
+  backend NestJS + TypeORM + SQLite, adicionado numa segunda etapa depois do
+  MVP client-only ter sido validado pelo usuário.
+
+  Decisão de arquitetura (mudou depois do MVP inicial): a primeira versão
+  guardava tudo no IndexedDB do navegador, 100% client-side. O usuário pediu
+  para evoluir para persistência real em disco — os arquivos de áudio
+  extraídos do zip devem existir como arquivos de verdade numa pasta
+  `tracks/` (fáceis de inspecionar/copiar/backupar), e os metadados
+  (nome da track, canais, BPM, tonalidade) num banco SQLite de verdade via
+  TypeORM no backend, não mais em WASM no browser (SQLite-WASM foi
+  pesquisado e descartado: exige Web Worker dedicado, OPFS, ~1MB+ de binário,
+  e a API de conveniência foi descontinuada em abril/2026 — SQLite via
+  TypeORM no Node é muito mais simples e maduro pro mesmo objetivo).
+  Continua sendo uma ferramenta 100% local/privada do usuário — o backend
+  roda só na máquina dele (localhost), nada de deploy público ou nuvem.
+
+  Fluxo de importação também mudou: em vez de salvar o zip direto ao
+  selecionar o arquivo, existe agora uma tela de revisão entre o upload e a
+  gravação, onde o usuário edita o nome da track, o nome de cada canal, e
+  preenche BPM e tonalidade (campos opcionais) antes de confirmar.
+
+  Reprodução sincronizada multicanal deve usar a Web Audio API
+  (AudioContext + AudioBufferSourceNode por canal, um GainNode por canal para
+  volume/mute), não múltiplas tags <audio> soltas — é o único jeito confiável
+  de manter os canais em sample-accurate sync ao dar play/pause/seek.
+
+  Referência visual obrigatória (copiar o "design language", não o conteúdo):
+  repositório github.com/montanari2019/ibn-manancial-sound (deploy:
+  https://ibn-manancial-sound.vercel.app/) — página HTML/CSS única de manual
+  de som de igreja. Tokens a reaproveitar:
+    - Fundo quase preto #050506, texto branco, cinza #86868b/#a1a1a6.
+    - Acento azul #0a84ff, verde de sucesso #30d158.
+    - Glassmorphism: bordas rgba(255,255,255,.12), fundo
+      rgba(255,255,255,.055), backdrop-filter blur.
+    - Raios de borda grandes: 14px / 22px / 32px.
+    - Tipografia Roboto (texto) + Roboto Mono (labels/valores numéricos,
+      letter-spacing largo, uppercase) + Material Symbols Rounded (ícones).
+    - Navbar em pill flutuante, blur, centralizada no topo.
+    - Botões pill: primário branco sólido, "ghost" com borda translúcida.
+    - Badges pill pequenas, mono, uppercase, coloridas por categoria.
+    - Cards "glass" com cantos grandes, gradiente sutil, glow no hover.
+    - Uma "fader rail" vertical fixa lateral (referência literal de fader —
+      reaproveitar essa linguagem visual nos controles de volume por canal).
+    - O mockup da mesa LV1 no HTML de referência (classes .lv, .st, .fad,
+      .cap, .meter, .knob, .mute, .solo) é o blueprint visual mais próximo do
+      "channel strip" que este app precisa implementar de forma funcional
+      (fader real + mute/solo reais + medidor de nível, não estático).
+
+  Convenções: nomes de arquivos/artefatos podem ficar em português (domínio
+  do produto é PT-BR), mas código, identificadores e commits em inglês.
+
+  Padrão de estilização (obrigatório): CSS Modules — um `Componente.module.css`
+  ao lado de cada `Componente.tsx`, classes importadas como objeto
+  (`styles.foo`). Nada de `style={{...}}` inline no JSX (exceto valores
+  dinâmicos calculados em runtime que não dá pra expressar em classe, ex:
+  altura de um meter/fader — e mesmo assim via variável CSS custom property
+  `style={{ '--value': x }}` combinada com a regra no .module.css, não com
+  propriedades soltas). Os design tokens (cores, raios, fontes, espaçamentos)
+  ficam centralizados em CSS custom properties num `:root` global (ex.
+  `src/styles/tokens.css`), e os módulos consomem via `var(--token)`. Nenhum
+  hex/px solto direto num .module.css — sempre via variável de tema.
+
+  Tema centralizado (obrigatório) em `src/styles/tokens.css`, cobrindo:
+    - Cores: `--color-bg`, `--color-bg-elevated`, `--color-text`,
+      `--color-text-muted`, `--color-text-subtle`, `--color-accent`,
+      `--color-accent-soft`, `--color-success`, `--color-success-soft`,
+      `--color-border`, `--color-border-soft`, `--color-glass`,
+      `--color-glass-strong` (baseado 1:1 na paleta extraída da referência:
+      #050506 / #fff / #86868b / #a1a1a6 / #0a84ff / #30d158 / bordas e glass
+      em rgba branco).
+    - Fontes: `--font-sans` (Roboto), `--font-mono` (Roboto Mono), pesos via
+      `--font-weight-*`, e uma escala de tamanho `--font-size-xs..3xl`.
+    - Espaçamento: escala `--space-1..8` (ou equivalente em rem).
+    - Raios: `--radius-s` (14px) `--radius-m` (22px) `--radius-l` (32px).
+    - Sombra/transição: `--shadow-*`, `--ease-standard` (o cubic-bezier da
+      referência), duração padrão de transição.
+  Componentes nunca hardcodam esses valores — sempre referenciam o token.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+rules:
+  design:
+    - "Documentar explicitamente o padrão de estilização: CSS Modules por componente + tokens globais em CSS custom properties, zero inline style exceto casos dinâmicos via CSS variable."
+  tasks:
+    - "Toda task de UI deve entregar um .module.css correspondente ao componente, nunca estilos inline."
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

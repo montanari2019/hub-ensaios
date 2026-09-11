@@ -1,0 +1,190 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-glass);
+}
+
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 12px var(--color-accent);
+}
+
+.title {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-black);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: var(--space-4) 0 0;
+}
+
+.subtitle {
+  max-width: 56ch;
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-light);
+  font-size: var(--font-size-lg);
+}
+
+.importArea {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.importErrorText {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 32ch;
+  text-align: right;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-5);
+  border-radius: var(--radius-l);
+  border: 1px dashed var(--color-border-strong);
+  background: var(--color-glass);
+}
+
+.emptyIcon {
+  font-size: 40px;
+  color: var(--color-text-subtle);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.emptyText {
+  margin: 0;
+  max-width: 44ch;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-light);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-5);
+}
+
+.trackCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.trackHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.trackName {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.trackHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.deleteButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-soft);
+  background: transparent;
+  color: var(--color-text-subtle);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.deleteButton :global(.material-symbols-rounded) {
+  font-size: 16px;
+}
+
+.deleteButton:hover {
+  background: rgba(255, 106, 92, 0.16);
+  color: var(--color-danger);
+  border-color: rgba(255, 106, 92, 0.4);
+}
+
+.trackMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.trackDate {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-subtle);
+}
+
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .importArea {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

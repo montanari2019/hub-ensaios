@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+
+# Dados locais (banco e áudios importados) — nunca vão pro git
+*.sqlite
+*.sqlite-journal
+/tracks/*
+!/tracks/.gitkeep
+
+# Variáveis de ambiente locais — .env.example fica versionado, .env não
+.env
+!.env.example
+
+# Estado de runtime do Claude Code (session id/pid, não é config de projeto)
+.claude/scheduled_tasks.lock
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
