@@ -1,14 +1,9 @@
 import { MigrationInterface, QueryRunner, Table } from 'typeorm';
 
-const NOW_DEFAULT = "(datetime('now'))";
-
 // FK e índice já vão dentro do `Table` da criação (não em `createForeignKey`/
-// `createIndex` separados depois): no SQLite, adicionar uma constraint numa
-// tabela que já existe força o driver a recriar a tabela inteira (copiar
-// pra uma tabela temporária, `INSERT INTO ... SELECT`, apagar a antiga,
-// renomear) — só pra preservar dado que, numa migration de criação, nem
-// existe ainda. Definindo tudo já no `CREATE TABLE`, esse passo nunca roda
-// e a migration não tem nenhum `INSERT` no meio do DDL.
+// `createIndex` separados depois): assim como no SQLite, isso mantém a
+// migration como um único `CREATE TABLE` com FK/índice inline, sem nenhum
+// passo de rebuild-de-tabela no meio do DDL.
 export class CreateChannels1789052040577 implements MigrationInterface {
     name = 'CreateChannels1789052040577';
 
@@ -17,18 +12,18 @@ export class CreateChannels1789052040577 implements MigrationInterface {
             new Table({
                 name: 'channels',
                 columns: [
-                    { name: 'id', type: 'varchar', isPrimary: true },
+                    { name: 'id', type: 'uuid', isPrimary: true },
                     {
                         name: 'created_at',
-                        type: 'datetime',
-                        default: NOW_DEFAULT,
+                        type: 'timestamptz',
+                        default: 'now()',
                     },
                     {
                         name: 'updated_at',
-                        type: 'datetime',
-                        default: NOW_DEFAULT,
+                        type: 'timestamptz',
+                        default: 'now()',
                     },
-                    { name: 'track_id', type: 'varchar' },
+                    { name: 'track_id', type: 'uuid' },
                     { name: 'name', type: 'varchar' },
                     { name: 'file_name', type: 'varchar' },
                     { name: 'file_path', type: 'varchar' },

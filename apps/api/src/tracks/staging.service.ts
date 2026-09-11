@@ -1,22 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { LessThan, Repository } from 'typeorm';
 
 import { NotFoundError } from '../common/errors/not-found.error.js';
+import { BlobStorageService } from './blob-storage.service.js';
 import { getAudioDurationSeconds } from './audio-duration.helper.js';
+import { StagingImport } from './entities/staging-import.entity.js';
 import type { ExtractedZipChannel } from './zip-import.helper.js';
 
-const STAGING_PREFIX = 'hub-import-';
 const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 export interface StagedChannel {
     tempChannelId: string;
     suggestedName: string;
     fileName: string;
-    stagedFileName: string;
+    blobUrl: string;
     mimeType: string;
     durationSeconds: number;
 }
@@ -34,43 +34,43 @@ function deriveTrackNameFromZip(zipFileName: string): string {
     return dotIndex > 0 ? base.slice(0, dotIndex) : base;
 }
 
+function stagingPrefix(importId: string): string {
+    return `staging/${importId}/`;
+}
+
 /**
  * Gerencia o estado "parseado, mas ainda não salvo" da importação — vive
- * como arquivos num diretório temporário (fora de TRACKS_DIR de propósito:
- * um import cancelado/abandonado nunca deve deixar rastro dentro da pasta
- * que só devia conter tracks confirmadas).
+ * como uma linha em `staging_imports` (Postgres) + arquivos em
+ * `staging/<importId>/` no Vercel Blob, em vez de um diretório temporário
+ * local. Necessário porque em serverless o POST /tracks/import e o POST
+ * /tracks/import/:id/confirm podem cair em instâncias de função diferentes
+ * — nada garante que o disco local de uma sobreviva até a outra.
  */
 @Injectable()
-export class StagingService implements OnModuleInit {
+export class StagingService {
     private readonly logger = new Logger(StagingService.name);
 
-    // Varre staging órfão (aba fechada sem cancelar) toda vez que o backend sobe.
-    async onModuleInit(): Promise<void> {
-        await this.sweepOrphans();
-    }
-
-    private stagingDir(importId: string): string {
-        return path.join(os.tmpdir(), `${STAGING_PREFIX}${importId}`);
-    }
-
-    private manifestPath(importId: string): string {
-        return path.join(this.stagingDir(importId), 'manifest.json');
-    }
+    constructor(
+        @InjectRepository(StagingImport)
+        private readonly stagingRepository: Repository<StagingImport>,
+        private readonly blobStorage: BlobStorageService,
+    ) {}
 
     async createStagingImport(
         originalZipName: string,
         extractedChannels: ExtractedZipChannel[],
     ): Promise<StagingManifest> {
         const importId = randomUUID();
-        const dir = this.stagingDir(importId);
-        await fs.mkdir(dir, { recursive: true });
 
         const channels: StagedChannel[] = [];
         for (const channel of extractedChannels) {
             const tempChannelId = randomUUID();
             const ext = channel.fileName.split('.').pop() ?? 'bin';
-            const stagedFileName = `${tempChannelId}.${ext}`;
-            await fs.writeFile(path.join(dir, stagedFileName), channel.buffer);
+            const blob = await this.blobStorage.put(
+                `${stagingPrefix(importId)}${tempChannelId}.${ext}`,
+                channel.buffer,
+                channel.mimeType,
+            );
             const durationSeconds = await getAudioDurationSeconds(
                 channel.buffer,
                 channel.mimeType,
@@ -80,113 +80,93 @@ export class StagingService implements OnModuleInit {
                 tempChannelId,
                 suggestedName: channel.name,
                 fileName: channel.fileName,
-                stagedFileName,
+                blobUrl: blob.url,
                 mimeType: channel.mimeType,
                 durationSeconds,
             });
         }
 
-        const manifest: StagingManifest = {
-            importId,
-            suggestedName: deriveTrackNameFromZip(originalZipName),
-            createdAt: new Date().toISOString(),
-            channels,
-        };
-
-        await fs.writeFile(
-            this.manifestPath(importId),
-            JSON.stringify(manifest, null, 2),
+        const suggestedName = deriveTrackNameFromZip(originalZipName);
+        const row = await this.stagingRepository.save(
+            this.stagingRepository.create({
+                id: importId,
+                suggestedName,
+                manifest: channels,
+            }),
         );
-        return manifest;
+
+        return {
+            importId: row.id,
+            suggestedName: row.suggestedName,
+            createdAt: row.createdAt.toISOString(),
+            channels: row.manifest,
+        };
     }
 
     async readManifest(importId: string): Promise<StagingManifest> {
-        try {
-            const raw = await fs.readFile(this.manifestPath(importId), 'utf-8');
-            return JSON.parse(raw) as StagingManifest;
-        } catch {
+        const row = await this.stagingRepository.findOne({
+            where: { id: importId },
+        });
+        if (!row) {
             throw new NotFoundError(
                 21,
                 'Importação não encontrada ou expirada.',
             );
         }
+
+        return {
+            importId: row.id,
+            suggestedName: row.suggestedName,
+            createdAt: row.createdAt.toISOString(),
+            channels: row.manifest,
+        };
     }
 
-    /** Move os arquivos do staging pra `<tracksDir>/<trackId>/`, devolvendo o caminho final (relativo a tracksDir) de cada tempChannelId. */
+    /** Copia os blobs de staging pra `tracks/<trackId>/`, devolvendo a URL final de cada tempChannelId. */
     async moveChannelsToTracksDir(
         manifest: StagingManifest,
-        tracksDir: string,
         trackId: string,
     ): Promise<Map<string, string>> {
-        const targetDir = path.join(tracksDir, trackId);
-        await fs.mkdir(targetDir, { recursive: true });
-
-        const finalPathsByTempId = new Map<string, string>();
+        const finalUrlByTempId = new Map<string, string>();
         for (const channel of manifest.channels) {
-            const source = path.join(
-                this.stagingDir(manifest.importId),
-                channel.stagedFileName,
+            const ext = channel.fileName.split('.').pop() ?? 'bin';
+            const moved = await this.blobStorage.copy(
+                channel.blobUrl,
+                `tracks/${trackId}/${channel.tempChannelId}.${ext}`,
+                channel.mimeType,
             );
-            const relativeTarget = path.join(trackId, channel.stagedFileName);
-            const absoluteTarget = path.join(tracksDir, relativeTarget);
-            await this.moveFile(source, absoluteTarget);
-            finalPathsByTempId.set(channel.tempChannelId, relativeTarget);
+            finalUrlByTempId.set(channel.tempChannelId, moved.url);
         }
 
-        return finalPathsByTempId;
-    }
+        await this.blobStorage.del(
+            manifest.channels.map((channel) => channel.blobUrl),
+        );
 
-    private async moveFile(source: string, destination: string): Promise<void> {
-        try {
-            await fs.rename(source, destination);
-        } catch (error) {
-            // EXDEV: staging (tmp) e TRACKS_DIR em volumes diferentes — rename
-            // não atravessa device, então cai pra copiar + apagar a origem.
-            if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
-                await fs.copyFile(source, destination);
-                await fs.unlink(source);
-                return;
-            }
-            throw error;
-        }
+        return finalUrlByTempId;
     }
 
     async discardStagingImport(importId: string): Promise<void> {
-        await fs.rm(this.stagingDir(importId), {
-            recursive: true,
-            force: true,
-        });
+        const urls = await this.blobStorage.listByPrefix(
+            stagingPrefix(importId),
+        );
+        if (urls.length > 0) {
+            await this.blobStorage.del(urls);
+        }
+        await this.stagingRepository.delete({ id: importId });
     }
 
-    /** Remove diretórios de staging abandonados (ex.: aba fechada sem cancelar). */
+    /** Remove staging abandonado (aba fechada sem cancelar, importId nunca confirmado). */
     async sweepOrphans(): Promise<void> {
-        const tmp = os.tmpdir();
-        let entries: string[];
-        try {
-            entries = await fs.readdir(tmp);
-        } catch {
-            return;
-        }
+        const cutoff = new Date(Date.now() - ORPHAN_MAX_AGE_MS);
+        const orphans = await this.stagingRepository.find({
+            where: { createdAt: LessThan(cutoff) },
+        });
 
-        const now = Date.now();
         await Promise.all(
-            entries
-                .filter((entry) => entry.startsWith(STAGING_PREFIX))
-                .map(async (entry) => {
-                    const fullPath = path.join(tmp, entry);
-                    try {
-                        const stat = await fs.stat(fullPath);
-                        if (now - stat.mtimeMs > ORPHAN_MAX_AGE_MS) {
-                            await fs.rm(fullPath, {
-                                recursive: true,
-                                force: true,
-                            });
-                            this.logger.log(`Staging órfão removido: ${entry}`);
-                        }
-                    } catch {
-                        // já removido por outra rota nesse meio tempo, ignora
-                    }
-                }),
+            orphans.map(async (orphan) => {
+                await this.discardStagingImport(orphan.id);
+                this.logger.log(`Staging órfão removido: ${orphan.id}`);
+            }),
         );
     }
 }

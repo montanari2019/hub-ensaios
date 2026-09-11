@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddPitchEditableToChannels1789067515469
-    implements MigrationInterface
-{
+export class AddPitchEditableToChannels1789067515469 implements MigrationInterface {
     name = 'AddPitchEditableToChannels1789067515469';
 
     public async up(queryRunner: QueryRunner): Promise<void> {

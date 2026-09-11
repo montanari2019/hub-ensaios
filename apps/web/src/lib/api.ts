@@ -1,3 +1,4 @@
+import { upload } from '@vercel/blob/client'
 import type { MusicalNote } from '../types'
 
 export interface ApiTrackSummary {
@@ -16,6 +17,7 @@ export interface ApiTrackChannel {
   order: number
   durationSeconds: number
   pitchEditable: boolean
+  fileUrl: string
 }
 
 export interface ApiTrackDetail extends ApiTrackSummary {
@@ -113,10 +115,20 @@ export function getImportPreview(importId: string): Promise<ApiImportPreview> {
   return request(`/tracks/import/${importId}`)
 }
 
-export function startImport(file: File): Promise<ApiImportPreview> {
-  const formData = new FormData()
-  formData.append('file', file)
-  return request('/tracks/import', { method: 'POST', body: formData })
+export async function startImport(file: File): Promise<ApiImportPreview> {
+  // O .zip vai direto pro Blob a partir do browser (contorna o limite de
+  // tamanho de body das funções serverless da Vercel) — o backend só recebe
+  // a URL resultante em POST /tracks/import, nunca os bytes do arquivo.
+  const blob = await upload(file.name, file, {
+    access: 'public',
+    handleUploadUrl: `${API_BASE}/tracks/import/authorize`,
+  })
+
+  return request('/tracks/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ blobUrl: blob.url, originalName: file.name }),
+  })
 }
 
 export function confirmImport(
@@ -132,8 +144,4 @@ export function confirmImport(
 
 export function cancelImport(importId: string): Promise<void> {
   return request(`/tracks/import/${importId}/cancel`, { method: 'POST' })
-}
-
-export function getChannelAudioUrl(trackId: string, channelId: string): string {
-  return `${API_BASE}/tracks/${trackId}/channels/${channelId}/audio`
 }

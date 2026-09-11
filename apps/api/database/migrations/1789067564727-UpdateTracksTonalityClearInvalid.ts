@@ -17,13 +17,13 @@ const VALID_NOTES = [
     'B',
 ];
 
-export class UpdateTracksTonalityClearInvalid1789067564727
-    implements MigrationInterface
-{
+export class UpdateTracksTonalityClearInvalid1789067564727 implements MigrationInterface {
     name = 'UpdateTracksTonalityClearInvalid1789067564727';
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        const placeholders = VALID_NOTES.map(() => '?').join(', ');
+        const placeholders = VALID_NOTES.map(
+            (_, index) => `$${index + 1}`,
+        ).join(', ');
         await queryRunner.query(
             `UPDATE tracks SET tonality = NULL WHERE tonality IS NOT NULL AND tonality NOT IN (${placeholders})`,
             VALID_NOTES,

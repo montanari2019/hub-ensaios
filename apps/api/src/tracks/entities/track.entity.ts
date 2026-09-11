@@ -1,4 +1,4 @@
-import { Column, Entity, OneToMany } from 'typeorm';
+import { Column, Entity, OneToMany, type Relation } from 'typeorm';
 
 import { BaseEntity } from '../../common/entities/base.entity.js';
 import { Channel } from './channel.entity.js';
@@ -22,5 +22,5 @@ export class Track extends BaseEntity {
     @OneToMany(() => Channel, (channel) => channel.track, {
         cascade: false,
     })
-    channels: Channel[];
+    channels: Relation<Channel>[];
 }

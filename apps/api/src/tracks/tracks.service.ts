@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { NotFoundError } from '../common/errors/not-found.error.js';
 import { UnprocessableEntityError } from '../common/errors/unprocessable-entity.error.js';
+import { BlobStorageService } from './blob-storage.service.js';
 import { ConfirmImportDto } from './dto/confirm-import.dto.js';
 import { UpdateTrackTonalityDto } from './dto/update-track-tonality.dto.js';
 import { Channel } from './entities/channel.entity.js';
@@ -34,6 +32,7 @@ export interface TrackDetail extends TrackSummary {
         order: number;
         durationSeconds: number;
         pitchEditable: boolean;
+        fileUrl: string;
     }>;
 }
 
@@ -52,38 +51,47 @@ export class TracksService {
     constructor(
         @InjectRepository(Track)
         private readonly trackRepository: Repository<Track>,
-        @InjectRepository(Channel)
-        private readonly channelRepository: Repository<Channel>,
         private readonly stagingService: StagingService,
-        private readonly configService: ConfigService,
+        private readonly blobStorage: BlobStorageService,
     ) {}
 
-    private get tracksDir(): string {
-        return this.configService.getOrThrow<string>('tracksStorage.tracksDir');
-    }
-
     async startImport(
+        blobUrl: string,
         originalName: string,
-        buffer: Buffer,
     ): Promise<ImportPreview> {
-        const extracted = await extractAudioChannelsFromZip(
-            originalName,
-            buffer,
-        );
-        const manifest = await this.stagingService.createStagingImport(
-            originalName,
-            extracted,
-        );
+        const response = await fetch(blobUrl);
+        if (!response.ok) {
+            throw new UnprocessableEntityError(
+                13,
+                'Não foi possível ler o arquivo enviado.',
+            );
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
 
-        return {
-            importId: manifest.importId,
-            suggestedName: manifest.suggestedName,
-            channels: manifest.channels.map((channel) => ({
-                tempChannelId: channel.tempChannelId,
-                suggestedName: channel.suggestedName,
-                durationSeconds: channel.durationSeconds,
-            })),
-        };
+        try {
+            const extracted = await extractAudioChannelsFromZip(
+                originalName,
+                buffer,
+            );
+            const manifest = await this.stagingService.createStagingImport(
+                originalName,
+                extracted,
+            );
+
+            return {
+                importId: manifest.importId,
+                suggestedName: manifest.suggestedName,
+                channels: manifest.channels.map((channel) => ({
+                    tempChannelId: channel.tempChannelId,
+                    suggestedName: channel.suggestedName,
+                    durationSeconds: channel.durationSeconds,
+                })),
+            };
+        } finally {
+            // O .zip enviado só existia pra chegar até aqui — nunca faz
+            // parte do staging de canais nem da track final.
+            await this.blobStorage.del(blobUrl).catch(() => undefined);
+        }
     }
 
     /** Refaz o preview a partir do manifest de staging — usado quando o
@@ -125,10 +133,9 @@ export class TracksService {
         }
 
         const trackId = randomUUID();
-        const finalPathsByTempId =
+        const finalUrlByTempId =
             await this.stagingService.moveChannelsToTracksDir(
                 manifest,
-                this.tracksDir,
                 trackId,
             );
 
@@ -151,7 +158,7 @@ export class TracksService {
                         trackId,
                         name: channelDto?.name ?? staged.suggestedName,
                         fileName: staged.fileName,
-                        filePath: finalPathsByTempId.get(staged.tempChannelId)!,
+                        fileUrl: finalUrlByTempId.get(staged.tempChannelId)!,
                         mimeType: staged.mimeType,
                         order: index,
                         durationSeconds: staged.durationSeconds,
@@ -161,12 +168,14 @@ export class TracksService {
                 await manager.save(channelEntities);
             });
         } catch (error) {
-            // Desfaz os arquivos já movidos se o banco falhar, pra não deixar
-            // uma pasta em tracks/ sem registro nenhum no banco.
-            await fs.rm(path.join(this.tracksDir, trackId), {
-                recursive: true,
-                force: true,
-            });
+            // Desfaz os blobs já movidos se o banco falhar, pra não deixar
+            // arquivos em tracks/ sem registro nenhum no banco.
+            const urls = await this.blobStorage.listByPrefix(
+                `tracks/${trackId}/`,
+            );
+            if (urls.length > 0) {
+                await this.blobStorage.del(urls).catch(() => undefined);
+            }
             throw error;
         }
 
@@ -177,6 +186,10 @@ export class TracksService {
 
     async cancelImport(importId: string): Promise<void> {
         await this.stagingService.discardStagingImport(importId);
+    }
+
+    async sweepStaging(): Promise<void> {
+        await this.stagingService.sweepOrphans();
     }
 
     async findAll(): Promise<TrackSummary[]> {
@@ -204,6 +217,7 @@ export class TracksService {
                 order: channel.order,
                 durationSeconds: channel.durationSeconds,
                 pitchEditable: channel.pitchEditable,
+                fileUrl: channel.fileUrl,
             })),
         };
     }
@@ -226,27 +240,13 @@ export class TracksService {
         if (!track) throw new NotFoundError(22, 'Track não encontrada.');
 
         // O FK de channels->track tem ON DELETE CASCADE, então as linhas de
-        // canal são removidas junto pelo próprio SQLite.
+        // canal são removidas junto pelo próprio Postgres.
         await this.trackRepository.remove(track);
-        await fs.rm(path.join(this.tracksDir, id), {
-            recursive: true,
-            force: true,
-        });
-    }
 
-    async getChannelFile(
-        trackId: string,
-        channelId: string,
-    ): Promise<{ absolutePath: string; mimeType: string }> {
-        const channel = await this.channelRepository.findOne({
-            where: { id: channelId, trackId },
-        });
-        if (!channel) throw new NotFoundError(23, 'Canal não encontrado.');
-
-        return {
-            absolutePath: path.join(this.tracksDir, channel.filePath),
-            mimeType: channel.mimeType,
-        };
+        const urls = await this.blobStorage.listByPrefix(`tracks/${id}/`);
+        if (urls.length > 0) {
+            await this.blobStorage.del(urls);
+        }
     }
 
     private toSummary(track: Track): TrackSummary {

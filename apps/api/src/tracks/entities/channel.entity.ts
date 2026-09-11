@@ -1,4 +1,11 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import {
+    Column,
+    Entity,
+    Index,
+    JoinColumn,
+    ManyToOne,
+    type Relation,
+} from 'typeorm';
 
 import { BaseEntity } from '../../common/entities/base.entity.js';
 import { Track } from './track.entity.js';
@@ -9,11 +16,14 @@ export class Channel extends BaseEntity {
     @Column({ name: 'track_id' })
     trackId: string;
 
+    // `Relation<Track>` (não `Track` puro) evita o ReferenceError de TDZ do
+    // emitDecoratorMetadata em import circular ESM (channel <-> track.js) —
+    // ver mesmo padrão em track.entity.ts.
     @ManyToOne(() => Track, (track) => track.channels, {
         onDelete: 'CASCADE',
     })
     @JoinColumn({ name: 'track_id' })
-    track: Track;
+    track: Relation<Track>;
 
     @Column()
     name: string;
@@ -22,10 +32,10 @@ export class Channel extends BaseEntity {
     @Column({ name: 'file_name' })
     fileName: string;
 
-    // Caminho relativo a TRACKS_DIR — fonte da verdade de onde o áudio está
-    // em disco; nunca recalculado por convenção a partir do id.
-    @Column({ name: 'file_path' })
-    filePath: string;
+    // URL pública do Vercel Blob — fonte da verdade de onde o áudio está;
+    // o player busca direto dessa URL, sem passar por um endpoint do backend.
+    @Column({ name: 'file_url' })
+    fileUrl: string;
 
     @Column({ name: 'mime_type' })
     mimeType: string;

@@ -1,0 +1,9 @@
+{
+    "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+    "crons": [
+        {
+            "path": "/tracks/internal/sweep-staging",
+            "schedule": "0 6 * * *"
+        }
+    ]
+}

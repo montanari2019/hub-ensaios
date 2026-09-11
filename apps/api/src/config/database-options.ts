@@ -1,12 +1,4 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
-
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-// De apps/api/src/config -> apps/api/src -> apps/api -> apps -> raiz do monorepo.
-const monorepoRoot = path.resolve(moduleDir, '../../../..');
-const defaultDbPath = path.join(monorepoRoot, 'hub-de-ensaios.sqlite');
 
 /**
  * Função pura, sem nenhuma dependência do `@nestjs/config` — usada tanto
@@ -16,13 +8,25 @@ const defaultDbPath = path.join(monorepoRoot, 'hub-de-ensaios.sqlite');
  * bootstrap do Nest, e importar qualquer coisa de `@nestjs/*` nesse caminho
  * arrisca puxar resolução de módulo específica do Nest que o executor de
  * TS da CLI não entende.
+ *
+ * `poolSize` pequeno de propósito: cada instância de função serverless na
+ * Vercel abre seu próprio pool, e muitas instâncias concorrentes cada uma
+ * com um pool grande esgotam o limite de conexões do Postgres gerenciado.
  */
 export function getDatabaseOptions() {
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+        throw new Error('DATABASE_URL não definida.');
+    }
+
     return {
-        type: 'better-sqlite3' as const,
-        database: process.env.DB_PATH
-            ? path.resolve(process.env.DB_PATH)
-            : defaultDbPath,
+        type: 'postgres' as const,
+        url,
+        ssl:
+            process.env.NODE_ENV === 'production'
+                ? { rejectUnauthorized: false }
+                : false,
+        poolSize: 3,
         // Nunca usar synchronize:true — schema é controlado só por migration
         // (yarn migration:run), mesmo em desenvolvimento.
         synchronize: false,
@@ -32,4 +36,15 @@ export function getDatabaseOptions() {
         // toda coluna com mais de uma palavra.
         namingStrategy: new SnakeNamingStrategy(),
     };
+}
+
+/**
+ * Só pra CLI (`database/data-source.ts`): migrations usam locking/DDL que
+ * não convivem bem com um pooler em modo transação (ex.: PgBouncer da
+ * Vercel Postgres) — usa a connection string non-pooling quando disponível.
+ */
+export function getMigrationDatabaseUrl(): string {
+    return (
+        process.env.DATABASE_URL_NON_POOLING ?? process.env.DATABASE_URL ?? ''
+    );
 }

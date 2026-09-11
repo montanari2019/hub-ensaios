@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getChannelAudioUrl, getTrack as fetchTrackDetail } from '../lib/api'
+import { getTrack as fetchTrackDetail } from '../lib/api'
 import { PlayerEngine } from '../lib/playerEngine'
 import { toChannel, toTrack } from '../lib/trackMappers'
 import { effectiveGain, isChannelAudible } from '../types'
@@ -33,8 +33,8 @@ function buildInitialChannelStates(channels: Channel[]): Record<string, ChannelP
   )
 }
 
-async function fetchChannelBlob(trackId: string, channelId: string, channelName: string): Promise<Blob> {
-  const response = await fetch(getChannelAudioUrl(trackId, channelId))
+async function fetchChannelBlob(fileUrl: string, channelName: string): Promise<Blob> {
+  const response = await fetch(fileUrl)
   if (!response.ok) {
     throw new Error(`Não foi possível carregar o áudio do canal "${channelName}".`)
   }
@@ -86,7 +86,7 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
         const channelBlobs = await Promise.all(
           detail.channels.map(async (channel) => ({
             id: channel.id,
-            blob: await fetchChannelBlob(id, channel.id, channel.name),
+            blob: await fetchChannelBlob(channel.fileUrl, channel.name),
             pitchEditable: channel.pitchEditable,
           })),
         )
