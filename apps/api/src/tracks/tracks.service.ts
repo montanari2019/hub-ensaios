@@ -59,14 +59,15 @@ export class TracksService {
         blobUrl: string,
         originalName: string,
     ): Promise<ImportPreview> {
-        const response = await fetch(blobUrl);
-        if (!response.ok) {
+        let buffer: Buffer;
+        try {
+            buffer = await this.blobStorage.fetchPrivateBlob(blobUrl);
+        } catch {
             throw new UnprocessableEntityError(
                 13,
                 'Não foi possível ler o arquivo enviado.',
             );
         }
-        const buffer = Buffer.from(await response.arrayBuffer());
 
         try {
             const extracted = await extractAudioChannelsFromZip(
@@ -133,7 +134,7 @@ export class TracksService {
         }
 
         const trackId = randomUUID();
-        const finalUrlByTempId =
+        const finalPathnameByTempId =
             await this.stagingService.moveChannelsToTracksDir(
                 manifest,
                 trackId,
@@ -158,7 +159,9 @@ export class TracksService {
                         trackId,
                         name: channelDto?.name ?? staged.suggestedName,
                         fileName: staged.fileName,
-                        fileUrl: finalUrlByTempId.get(staged.tempChannelId)!,
+                        blobPathname: finalPathnameByTempId.get(
+                            staged.tempChannelId,
+                        )!,
                         mimeType: staged.mimeType,
                         order: index,
                         durationSeconds: staged.durationSeconds,
@@ -211,14 +214,18 @@ export class TracksService {
 
         return {
             ...this.toSummary(track),
-            channels: channels.map((channel) => ({
-                id: channel.id,
-                name: channel.name,
-                order: channel.order,
-                durationSeconds: channel.durationSeconds,
-                pitchEditable: channel.pitchEditable,
-                fileUrl: channel.fileUrl,
-            })),
+            channels: await Promise.all(
+                channels.map(async (channel) => ({
+                    id: channel.id,
+                    name: channel.name,
+                    order: channel.order,
+                    durationSeconds: channel.durationSeconds,
+                    pitchEditable: channel.pitchEditable,
+                    fileUrl: await this.blobStorage.getSignedGetUrl(
+                        channel.blobPathname,
+                    ),
+                })),
+            ),
         };
     }
 

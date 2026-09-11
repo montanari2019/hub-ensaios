@@ -120,7 +120,7 @@ export async function startImport(file: File): Promise<ApiImportPreview> {
   // tamanho de body das funções serverless da Vercel) — o backend só recebe
   // a URL resultante em POST /tracks/import, nunca os bytes do arquivo.
   const blob = await upload(file.name, file, {
-    access: 'public',
+    access: 'private',
     handleUploadUrl: `${API_BASE}/tracks/import/authorize`,
   })
 

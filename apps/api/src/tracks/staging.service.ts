@@ -122,12 +122,12 @@ export class StagingService {
         };
     }
 
-    /** Copia os blobs de staging pra `tracks/<trackId>/`, devolvendo a URL final de cada tempChannelId. */
+    /** Copia os blobs de staging pra `tracks/<trackId>/`, devolvendo o pathname final de cada tempChannelId (o blob é privado, então o pathname — não a URL — é o que fica salvo e depois assinado sob demanda). */
     async moveChannelsToTracksDir(
         manifest: StagingManifest,
         trackId: string,
     ): Promise<Map<string, string>> {
-        const finalUrlByTempId = new Map<string, string>();
+        const finalPathnameByTempId = new Map<string, string>();
         for (const channel of manifest.channels) {
             const ext = channel.fileName.split('.').pop() ?? 'bin';
             const moved = await this.blobStorage.copy(
@@ -135,14 +135,14 @@ export class StagingService {
                 `tracks/${trackId}/${channel.tempChannelId}.${ext}`,
                 channel.mimeType,
             );
-            finalUrlByTempId.set(channel.tempChannelId, moved.url);
+            finalPathnameByTempId.set(channel.tempChannelId, moved.pathname);
         }
 
         await this.blobStorage.del(
             manifest.channels.map((channel) => channel.blobUrl),
         );
 
-        return finalUrlByTempId;
+        return finalPathnameByTempId;
     }
 
     async discardStagingImport(importId: string): Promise<void> {

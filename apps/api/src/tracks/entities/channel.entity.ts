@@ -32,10 +32,11 @@ export class Channel extends BaseEntity {
     @Column({ name: 'file_name' })
     fileName: string;
 
-    // URL pública do Vercel Blob — fonte da verdade de onde o áudio está;
-    // o player busca direto dessa URL, sem passar por um endpoint do backend.
-    @Column({ name: 'file_url' })
-    fileUrl: string;
+    // Pathname do objeto no Vercel Blob (store privado) — fonte da verdade
+    // de onde o áudio está. O player nunca recebe isso direto; a API assina
+    // uma URL temporária por request (ver BlobStorageService.getSignedGetUrl).
+    @Column({ name: 'blob_pathname' })
+    blobPathname: string;
 
     @Column({ name: 'mime_type' })
     mimeType: string;
