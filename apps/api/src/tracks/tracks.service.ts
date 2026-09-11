@@ -156,6 +156,11 @@ export class TracksService {
                 const channelEntities = manifest.channels.map((staged, index) => {
                     const channelDto = dtoByTempId.get(staged.tempChannelId);
                     return manager.create(Channel, {
+                        // Postgres não gera o uuid sozinho sem um DEFAULT na
+                        // coluna (nossas migrations não adicionam um de
+                        // propósito) — sempre gerar explícito, como já
+                        // fazemos pra Track/StagingImport.
+                        id: randomUUID(),
                         trackId,
                         name: channelDto?.name ?? staged.suggestedName,
                         fileName: staged.fileName,
