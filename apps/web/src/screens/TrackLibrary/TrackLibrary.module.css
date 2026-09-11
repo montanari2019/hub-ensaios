@@ -159,6 +159,33 @@
   gap: var(--space-4);
 }
 
+/* Enquanto qualquer card está navegando, os outros ficam visualmente
+   quietos e não respondem a clique — evita disparar uma segunda navegação
+   durante a troca de tela. */
+.trackCardDisabled {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.trackCardOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-l);
+  background: rgba(5, 5, 6, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 1;
+}
+
+.trackCardOverlay .importSpinner {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+}
+
 .trackHeader {
   display: flex;
   align-items: flex-start;

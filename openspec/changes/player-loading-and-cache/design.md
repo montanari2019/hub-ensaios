@@ -1,0 +1,40 @@
+## Context
+
+See [proposal.md](./proposal.md) for motivation. Current flow (`apps/web/src/hooks/usePlayerEngine.ts`, `apps/web/src/lib/playerEngine.ts`, `apps/web/src/screens/Player/Player.tsx`):
+
+1. `usePlayerEngine`'s effect calls `fetchTrackDetail(id)` (`GET /tracks/:id`), which returns each channel's `fileUrl` — a Vercel Blob signed URL freshly minted by `BlobStorageService.getSignedGetUrl` on every call (different `vercel-blob-delegation`/`vercel-blob-signature` query params each time, since the underlying delegation token itself is also reissued once its short cached lifetime is up).
+2. For each channel, `fetchChannelBlob(fileUrl, name)` does a plain `fetch(url).then(r => r.blob())` — no progress, no cache lookup — all in parallel via `Promise.all`.
+3. `PlayerEngine.create(channelBlobs)` (`playerEngine.ts`) calls `blob.arrayBuffer()` then `audioContext.decodeAudioData(arrayBuffer)` per channel, also in parallel.
+4. `Player.tsx` renders `<p className={styles.notFound}>Carregando track…</p>` while `loading` is true — `.notFound` is `align-items: flex-start`, shared with the (unrelated) "track not found" error state, and was never meant to be a primary loading screen.
+
+Because the signed URL changes on every request, the browser's native HTTP cache (keyed by URL) never hits for repeat opens of the same track — every open re-downloads every channel's full audio from Blob.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Real, aggregate download percentage across all channels while a track loads, shown in a properly centered loading screen.
+- Skip the network download entirely for channels already downloaded earlier in the same browser, regardless of the signed URL changing between requests.
+
+**Non-Goals:**
+- Caching decoded `AudioBuffer`s across page loads — not possible to persist via Cache Storage (only raw bytes/Blobs are storable); decode still runs on every track open, but it's CPU-bound and fast relative to the network download this change addresses.
+- Cache eviction/quota management UI, or clearing a track's cached audio when the track itself is deleted — the cache is small relative to typical browser storage quotas and orphaned entries are harmless; not worth the added complexity for this change.
+- Any change to how the backend issues signed URLs — reissuing per-request is correct and intentional (see local-backend/cloud-deploy specs); this change works entirely around it on the client.
+
+## Decisions
+
+### Cache keyed by channel id via the Cache Storage API, not the signed URL
+`caches.open('hub-ensaios-audio-v1')`, then `cache.match(new Request(cacheKey(channelId)))` / `cache.put(...)` with `cacheKey(channelId) = `https://hub-ensaios-cache.local/channel/${channelId}`` — a synthetic, never-fetched URL used purely as a stable cache key (Cache Storage requires a `Request`/URL as its key; it doesn't need to be a real network-reachable address). Channel audio is immutable once a track is confirmed (no edit-audio flow exists), so there is no cache-invalidation concern: a hit is always valid, forever, no TTL or versioning needed beyond the store's own name (bumping the `-v1` suffix is the escape hatch if the cached `Response` shape ever needs to change later). Alternative considered: IndexedDB — rejected as more code for no benefit here, since Cache Storage's `Request`/`Response` model is already a natural fit for "cache this blob under this key" and needs no schema.
+
+### Download progress via manual chunked reads, not `fetch`'s built-in progress (there isn't one)
+`fetch` has no native download-progress event. `fetchChannelBlob` reads `response.body.getReader()` in a loop, accumulating chunk lengths against the `Content-Length` response header (Blob's stored objects always set this) to report per-channel bytes-loaded. `usePlayerEngine` sums bytes-loaded and total-bytes across all channels (known up front once each channel's response headers arrive) to compute one aggregate percentage, mirroring the same "sum of per-item progress" shape already used for the import flow's upload bar (`import-progress-feedback`), for consistency. A channel served from cache contributes its full size to both the "loaded" and "total" sums immediately (no network wait), so a track that's fully cached jumps straight to 100%.
+
+### Card click feedback via a local "navigating" id, not a route-level transition indicator
+`TrackLibrary.tsx` tracks `navigatingTrackId: string | null`. The click/keydown handler that currently just calls `navigate(...)` first sets `navigatingTrackId` to that track's id synchronously, then calls `navigate(...)` — React Router's client-side navigation swaps `TrackLibrary` for `Player` within the same render pass, so this state is only visible for a brief window, but it's exactly the window between "user clicked" and "the player screen's own loading state takes over" that the user reported as feeling unresponsive. While set: the clicked card shows a spinner overlay (replacing/alongside its content) and every card (including the clicked one) becomes non-interactive (`pointer-events: none` or an equivalent disabled state) so a second click during the brief transition can't fire a second navigation. No explicit cleanup is needed — `TrackLibrary` unmounts on navigation, so the state simply stops existing rather than needing to be reset. Alternative considered: a global/route-level transition indicator (e.g. a top-of-page progress bar) — rejected as a bigger change than this card-level fix calls for, and less precise about *which* track the user is waiting on.
+
+### New centered loading component, not a reused/restyled `.notFound`
+`.notFound` stays as the "track not found" error state (its actual purpose); a new loading block (inline in `Player.tsx`, styled via a new `.loading`/`.loadingBar`/`.loadingPercent` set of classes in `Player.module.css`, following the same CSS-Modules-plus-`--progress`-custom-property pattern used in `TrackLibrary.module.css` for the import bar) is centered both axes within the screen. Alternative considered: extracting a shared `<LoadingBar>` component used by both the import flow and the player — rejected for now since the two contexts render differently enough (inline pill next to a button vs. full-screen centered block) that sharing would need prop-driven layout variants for limited reuse; revisit only if a third loading-bar use case appears.
+
+## Risks / Trade-offs
+
+- **[Risk]** Cache Storage has a browser-enforced storage quota shared with the rest of the origin's storage; a user rehearsing many large tracks could eventually hit it. → **Mitigation/acceptance**: quotas are typically hundreds of MB to several GB depending on browser/device — acceptable for this app's realistic usage; a `put()` failure (quota exceeded) is caught and simply skipped (falls back to no caching for that item) rather than breaking playback.
+- **[Trade-off]** Decode time (CPU-bound) is unchanged and not reflected in the percentage — the bar can sit near 100% briefly while `decodeAudioData` finishes for large files. → Accepted: download is the dominant cost for anything but very small files, and this matches the same trade-off already accepted in `import-progress-feedback`'s design for its own indeterminate phase.

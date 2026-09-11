@@ -7,6 +7,7 @@ import { ApiError, updateTrackTonality } from '../../lib/api'
 import { formatDuration } from '../../lib/format'
 import { semitoneOffset } from '../../lib/transpose'
 import { isChannelAudible } from '../../types'
+import type { CSSVarStyle } from '../../types/css'
 import type { MusicalNote, OctaveShift } from '../../types'
 import styles from './Player.module.css'
 
@@ -19,6 +20,7 @@ export function Player() {
     channelStates,
     transport,
     loading,
+    loadingProgress,
     error,
     togglePlay,
     seek,
@@ -63,7 +65,18 @@ export function Player() {
   }
 
   if (loading) {
-    return <p className={styles.notFound}>Carregando track…</p>
+    return (
+      <div className={styles.loading}>
+        <span className={styles.loadingPercent}>{loadingProgress}%</span>
+        <span className={styles.loadingBar}>
+          <span
+            className={styles.loadingBarFill}
+            style={{ '--progress': `${loadingProgress}%` } as CSSVarStyle}
+          />
+        </span>
+        <span className={styles.loadingLabel}>Carregando os canais da track…</span>
+      </div>
+    )
   }
 
   if (error || !track) {

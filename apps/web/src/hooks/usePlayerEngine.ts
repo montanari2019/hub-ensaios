@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getTrack as fetchTrackDetail } from '../lib/api'
+import { cacheChannelAudio, getCachedChannelAudio } from '../lib/audioCache'
 import { PlayerEngine } from '../lib/playerEngine'
 import { toChannel, toTrack } from '../lib/trackMappers'
 import { effectiveGain, isChannelAudible } from '../types'
@@ -13,6 +14,8 @@ export interface UsePlayerEngineResult {
   channelStates: Record<string, ChannelPlaybackState>
   transport: TransportState
   loading: boolean
+  /** 0-100, agregando o download de todos os canais (cache conta como 100% na hora). */
+  loadingProgress: number
   error: string | null
   togglePlay: () => void
   seek: (time: number) => void
@@ -33,12 +36,45 @@ function buildInitialChannelStates(channels: Channel[]): Record<string, ChannelP
   )
 }
 
-async function fetchChannelBlob(fileUrl: string, channelName: string): Promise<Blob> {
+/** Cache-first: um hit não bate na rede e já reporta 100% pra esse canal. */
+async function fetchChannelBlob(
+  channelId: string,
+  fileUrl: string,
+  channelName: string,
+  onProgress: (loadedBytes: number, totalBytes: number) => void,
+): Promise<Blob> {
+  const cached = await getCachedChannelAudio(channelId)
+  if (cached) {
+    onProgress(cached.size, cached.size)
+    return cached
+  }
+
   const response = await fetch(fileUrl)
-  if (!response.ok) {
+  if (!response.ok || !response.body) {
     throw new Error(`Não foi possível carregar o áudio do canal "${channelName}".`)
   }
-  return response.blob()
+
+  // `fetch` não tem progresso de download nativo — lê a resposta em chunks
+  // pra poder reportar bytes acumulados contra o Content-Length.
+  const total = Number(response.headers.get('content-length') ?? 0)
+  const reader = response.body.getReader()
+  const chunks: Uint8Array<ArrayBuffer>[] = []
+  let loaded = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    // `value` vem tipado como Uint8Array<ArrayBufferLike> (pode ser
+    // SharedArrayBuffer) sob strict mode — o construtor de Blob só aceita
+    // ArrayBufferView<ArrayBuffer>, daí a cópia explícita.
+    chunks.push(new Uint8Array(value))
+    loaded += value.byteLength
+    onProgress(loaded, total || loaded)
+  }
+
+  const blob = new Blob(chunks, { type: response.headers.get('content-type') ?? undefined })
+  await cacheChannelAudio(channelId, blob)
+  return blob
 }
 
 export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineResult {
@@ -55,6 +91,7 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
     masterVolume: 1,
   })
   const [loading, setLoading] = useState(true)
+  const [loadingProgress, setLoadingProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   function resetChannelLevels() {
@@ -74,6 +111,7 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
 
     let cancelled = false
     setLoading(true)
+    setLoadingProgress(0)
     setError(null)
 
     async function load(id: string) {
@@ -83,10 +121,30 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
           throw new Error('Track não encontrada.')
         }
 
+        // Soma bytes carregados/totais entre todos os canais pra uma única
+        // porcentagem agregada — cada canal reporta pro seu próprio slot.
+        const progressByChannel = new Map(
+          detail.channels.map((channel) => [channel.id, { loaded: 0, total: 0 }]),
+        )
+        function reportAggregateProgress() {
+          let loaded = 0
+          let total = 0
+          for (const entry of progressByChannel.values()) {
+            loaded += entry.loaded
+            total += entry.total
+          }
+          if (!cancelled) {
+            setLoadingProgress(total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0)
+          }
+        }
+
         const channelBlobs = await Promise.all(
           detail.channels.map(async (channel) => ({
             id: channel.id,
-            blob: await fetchChannelBlob(channel.fileUrl, channel.name),
+            blob: await fetchChannelBlob(channel.id, channel.fileUrl, channel.name, (loadedBytes, totalBytes) => {
+              progressByChannel.set(channel.id, { loaded: loadedBytes, total: totalBytes })
+              reportAggregateProgress()
+            }),
             pitchEditable: channel.pitchEditable,
           })),
         )
@@ -97,6 +155,10 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
           engine.destroy()
           return
         }
+
+        // Garante 100 exato ao final — arredondamento por canal pode deixar
+        // a soma agregada em 99 mesmo com todo mundo já carregado.
+        setLoadingProgress(100)
 
         const uiChannels = detail.channels.map((channel, index) => toChannel(id, channel, index))
         for (const channel of uiChannels) {
@@ -251,6 +313,7 @@ export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineRes
     channelStates,
     transport,
     loading,
+    loadingProgress,
     error,
     togglePlay,
     seek,

@@ -35,6 +35,10 @@ export function TrackLibrary() {
   const [libraryError, setLibraryError] = useState<string | null>(null)
   const [importPhase, setImportPhase] = useState<ImportPhase>({ status: 'idle' })
   const isImporting = importPhase.status === 'uploading' || importPhase.status === 'processing'
+  // Setado no exato instante do clique/tecla, antes de navigate() — dá
+  // feedback imediato no card em vez dele parecer sem resposta até a tela
+  // do player montar. Some sozinho quando a TrackLibrary desmonta.
+  const [navigatingTrackId, setNavigatingTrackId] = useState<string | null>(null)
 
   const refreshTracks = useCallback(async () => {
     try {
@@ -87,10 +91,16 @@ export function TrackLibrary() {
     await refreshTracks()
   }
 
+  function handleSelectTrack(trackId: string) {
+    if (navigatingTrackId) return
+    setNavigatingTrackId(trackId)
+    navigate(`/tracks/${trackId}`)
+  }
+
   function handleCardKeyDown(event: KeyboardEvent<HTMLDivElement>, trackId: string) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      navigate(`/tracks/${trackId}`)
+      handleSelectTrack(trackId)
     }
   }
 
@@ -179,12 +189,23 @@ export function TrackLibrary() {
             <Card
               key={track.id}
               interactive
-              className={styles.trackCard}
+              className={[
+                styles.trackCard,
+                navigatingTrackId ? styles.trackCardDisabled : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               role="button"
               tabIndex={0}
-              onClick={() => navigate(`/tracks/${track.id}`)}
+              aria-busy={navigatingTrackId === track.id}
+              onClick={() => handleSelectTrack(track.id)}
               onKeyDown={(event) => handleCardKeyDown(event, track.id)}
             >
+              {navigatingTrackId === track.id ? (
+                <div className={styles.trackCardOverlay}>
+                  <span className={styles.importSpinner} aria-hidden="true" />
+                </div>
+              ) : null}
               <div className={styles.trackHeader}>
                 <h3 className={styles.trackName}>{track.name}</h3>
                 <div className={styles.trackHeaderActions}>
