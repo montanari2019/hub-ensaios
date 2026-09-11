@@ -41,3 +41,22 @@ channel's audio over the network again.
 - **THEN** only the uncached channels are fetched over the network, and
   they are added to the cache once downloaded so the next open of that
   track uses the cache for them too
+
+### Requirement: A stalled channel download fails with a clear error
+If a channel's audio download does not complete within a bounded time,
+loading the track SHALL fail with a specific, actionable error message
+instead of leaving the loading percentage frozen indefinitely with no
+further feedback.
+
+#### Scenario: One channel's download stalls
+- **WHEN** one channel's audio download does not complete within the
+  timeout, while other channels may have already finished
+- **THEN** loading the track fails and the player shows a specific error
+  message indicating the download didn't complete, instead of remaining
+  on the loading percentage forever
+
+#### Scenario: A channel fetch fails outright
+- **WHEN** a channel's audio request fails (network error, non-2xx
+  response)
+- **THEN** loading the track fails the same way as a stalled download —
+  with a specific error, not a silent hang

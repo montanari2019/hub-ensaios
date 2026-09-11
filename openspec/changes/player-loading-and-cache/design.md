@@ -14,6 +14,7 @@ Because the signed URL changes on every request, the browser's native HTTP cache
 **Goals:**
 - Real, aggregate download percentage across all channels while a track loads, shown in a properly centered loading screen.
 - Skip the network download entirely for channels already downloaded earlier in the same browser, regardless of the signed URL changing between requests.
+- A single stalled or failed channel download surfaces as a clear error within a bounded time, never as an indefinitely frozen loading percentage. (Added after shipping the first version of this change: `Promise.all` over the per-channel fetches means one fetch that never resolves — flaky network, a browser extension blocking the Blob request, a transient CDN hiccup — hangs the whole load forever, since `Promise.all` itself never resolves or rejects until every input does. A real user hit this in production.)
 
 **Non-Goals:**
 - Caching decoded `AudioBuffer`s across page loads — not possible to persist via Cache Storage (only raw bytes/Blobs are storable); decode still runs on every track open, but it's CPU-bound and fast relative to the network download this change addresses.
@@ -33,6 +34,9 @@ Because the signed URL changes on every request, the browser's native HTTP cache
 
 ### New centered loading component, not a reused/restyled `.notFound`
 `.notFound` stays as the "track not found" error state (its actual purpose); a new loading block (inline in `Player.tsx`, styled via a new `.loading`/`.loadingBar`/`.loadingPercent` set of classes in `Player.module.css`, following the same CSS-Modules-plus-`--progress`-custom-property pattern used in `TrackLibrary.module.css` for the import bar) is centered both axes within the screen. Alternative considered: extracting a shared `<LoadingBar>` component used by both the import flow and the player — rejected for now since the two contexts render differently enough (inline pill next to a button vs. full-screen centered block) that sharing would need prop-driven layout variants for limited reuse; revisit only if a third loading-bar use case appears.
+
+### Per-channel timeout via `AbortController`, propagated through the existing `Promise.all`/catch
+`fetchChannelBlob` wraps its `fetch` in an `AbortController` with a generous-but-finite timeout (60s — audio files can be large, but a healthy connection should comfortably finish well inside that). On timeout, the abort turns the `fetch` (or the in-flight `reader.read()` loop) into a rejected promise, which propagates through the existing `Promise.all(detail.channels.map(...))` in `usePlayerEngine` exactly like any other channel failure already does today — no new error-handling path needed, just closing the gap where nothing was ever bounded in the first place. The rejection reaches the `load()` function's existing `catch` block, which already sets `error` and clears `loading`; the thrown `Error`'s message is made specific (naming the channel and whether it was a timeout or a request failure) so the resulting screen — the player's existing `error || !track` branch in `Player.tsx`, unchanged by this addition — tells the user what actually happened instead of a generic "não foi possível carregar." Alternative considered: let individual channels fail independently and play back only the successful ones — rejected as a bigger behavior change (silently missing channels during a rehearsal is worse than a clear failure) and out of proportion to what this fix needs to do.
 
 ## Risks / Trade-offs
 

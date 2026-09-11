@@ -36,6 +36,13 @@ function buildInitialChannelStates(channels: Channel[]): Record<string, ChannelP
   )
 }
 
+// Generoso mas finito: sem isso, um fetch que trava (rede instável,
+// extensão do navegador bloqueando a requisição, hiccup do CDN) nunca
+// resolve nem rejeita — o Promise.all em load() fica esperando pra sempre
+// e a porcentagem agregada congela no valor que os outros canais já
+// tinham alcançado, sem erro nenhum aparecer. Já aconteceu em produção.
+const CHANNEL_FETCH_TIMEOUT_MS = 60_000
+
 /** Cache-first: um hit não bate na rede e já reporta 100% pra esse canal. */
 async function fetchChannelBlob(
   channelId: string,
@@ -49,32 +56,47 @@ async function fetchChannelBlob(
     return cached
   }
 
-  const response = await fetch(fileUrl)
-  if (!response.ok || !response.body) {
-    throw new Error(`Não foi possível carregar o áudio do canal "${channelName}".`)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), CHANNEL_FETCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(fileUrl, { signal: controller.signal })
+    if (!response.ok || !response.body) {
+      throw new Error(`Não foi possível carregar o áudio do canal "${channelName}".`)
+    }
+
+    // `fetch` não tem progresso de download nativo — lê a resposta em chunks
+    // pra poder reportar bytes acumulados contra o Content-Length. O mesmo
+    // `signal` cobre essa leitura também, não só a conexão inicial.
+    const total = Number(response.headers.get('content-length') ?? 0)
+    const reader = response.body.getReader()
+    const chunks: Uint8Array<ArrayBuffer>[] = []
+    let loaded = 0
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      // `value` vem tipado como Uint8Array<ArrayBufferLike> (pode ser
+      // SharedArrayBuffer) sob strict mode — o construtor de Blob só aceita
+      // ArrayBufferView<ArrayBuffer>, daí a cópia explícita.
+      chunks.push(new Uint8Array(value))
+      loaded += value.byteLength
+      onProgress(loaded, total || loaded)
+    }
+
+    const blob = new Blob(chunks, { type: response.headers.get('content-type') ?? undefined })
+    await cacheChannelAudio(channelId, blob)
+    return blob
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(
+        `O download do áudio do canal "${channelName}" demorou demais e foi interrompido. Tente novamente.`,
+      )
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  // `fetch` não tem progresso de download nativo — lê a resposta em chunks
-  // pra poder reportar bytes acumulados contra o Content-Length.
-  const total = Number(response.headers.get('content-length') ?? 0)
-  const reader = response.body.getReader()
-  const chunks: Uint8Array<ArrayBuffer>[] = []
-  let loaded = 0
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    // `value` vem tipado como Uint8Array<ArrayBufferLike> (pode ser
-    // SharedArrayBuffer) sob strict mode — o construtor de Blob só aceita
-    // ArrayBufferView<ArrayBuffer>, daí a cópia explícita.
-    chunks.push(new Uint8Array(value))
-    loaded += value.byteLength
-    onProgress(loaded, total || loaded)
-  }
-
-  const blob = new Blob(chunks, { type: response.headers.get('content-type') ?? undefined })
-  await cacheChannelAudio(channelId, blob)
-  return blob
 }
 
 export function usePlayerEngine(trackId: string | undefined): UsePlayerEngineResult {
