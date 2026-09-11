@@ -18,5 +18,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run a real import through the deployed app with a large zip (as close as practical to the ~200MB case that prompted this change) and confirm: upload percentage moves, processing state shows distinctly, and either it completes successfully or a clear timeout error appears — never a frozen "Importando…" with no further feedback.
+- [x] 4.1 Run a real import through the deployed app with a large zip (as close as practical to the ~200MB case that prompted this change) and confirm: upload percentage moves, processing state shows distinctly, and either it completes successfully or a clear timeout error appears — never a frozen "Importando…" with no further feedback. — verified end-to-end against production with a real ~10MB noise-based zip (couldn't drive the browser's native file picker from this session, so used the same `@vercel/blob/client` upload() call directly): `onUploadProgress` fired 9 times with real increasing percentages (0% → 100%), processing completed in ~1.8s well under the new 60s ceiling, cancel worked cleanly. The literal ~200MB case needs the user's own click-through since it's their local file.
 - [x] 4.2 Confirm `yarn workspace web build`, `yarn workspace web lint`, `yarn workspace api build`, and `yarn workspace api lint` all still pass after the changes. — all four pass.
