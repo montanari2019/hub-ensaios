@@ -10,7 +10,7 @@ Sobe um `.zip` com os canais de uma música (bateria, baixo, voz, click...), o a
 [![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![NestJS](https://img.shields.io/badge/nestjs-12-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![TypeScript](https://img.shields.io/badge/typescript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Postgres](https://img.shields.io/badge/postgres-vercel--postgres-4169E1?logo=postgresql&logoColor=white)](https://vercel.com/storage/postgres)
+[![Postgres](https://img.shields.io/badge/postgres-vercel--storage-4169E1?logo=postgresql&logoColor=white)](https://vercel.com/docs/storage)
 [![Vercel](https://img.shields.io/badge/deploy-vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
 
 *Frontend e backend publicados na Vercel; banco (Postgres) e áudios (Blob) gerenciados na nuvem — qualquer pessoa com o link acessa.*
@@ -57,7 +57,7 @@ O fluxo é simples:
 3. Abre a track na biblioteca e toca tudo sincronizado, com um "channel strip" por canal — mute, solo, fader de volume (até 120%) e medidor de nível ao vivo.
 4. Se precisar tocar em outro tom, clica na tonalidade, escolhe a nota e a oitava — o pitch muda na hora, **sem alterar a velocidade**, e só nos canais que fazem sentido (bateria/click ficam de fora automaticamente).
 
-Tudo fica salvo na nuvem: os áudios no Vercel Blob, os metadados num Postgres gerenciado (Vercel Postgres) via TypeORM. O app é público — qualquer pessoa com o link do deploy acessa e ouve as tracks importadas por qualquer outra pessoa, sem precisar rodar nada localmente.
+Tudo fica salvo na nuvem: os áudios no Vercel Blob, os metadados num Postgres gerenciado (via Vercel Storage — Marketplace: Neon, Prisma Postgres etc.) através do TypeORM. O app é público — qualquer pessoa com o link do deploy acessa e ouve as tracks importadas por qualquer outra pessoa, sem precisar rodar nada localmente.
 
 ## ✨ Funcionalidades
 
@@ -112,7 +112,7 @@ hub-de-ensaios/
 
 **Por que essas escolhas:**
 - **Web Audio API** em vez de `<audio>` múltiplas tags: é o único jeito confiável de manter os canais em sample-accurate sync ao dar play/pause/seek/transpose.
-- **Postgres gerenciado (Vercel Postgres) + Vercel Blob** em vez de SQLite/disco local: funções serverless não têm filesystem persistente, então banco e áudio precisam viver fora da instância deployada — sobrevivem a redeploy e ficam acessíveis por qualquer pessoa com o link, não só a máquina de quem importou.
+- **Postgres gerenciado (via Vercel Storage) + Vercel Blob** em vez de SQLite/disco local: funções serverless não têm filesystem persistente, então banco e áudio precisam viver fora da instância deployada — sobrevivem a redeploy e ficam acessíveis por qualquer pessoa com o link, não só a máquina de quem importou.
 - **Upload direto pro Blob a partir do browser**: o `.zip` nunca passa pelo corpo da requisição da função serverless (que tem limite de tamanho) — o frontend sobe direto pro Blob e só manda a URL resultante pro backend processar.
 - **Postgres local via Docker (não SQLite) no dev**: mesma engine em dev e produção — migrations e queries nunca divergem entre os dois ambientes.
 - **Tone.js `PitchShift`** em vez de `detune`/`playbackRate` nativo: transpor só o pitch sem tocar na velocidade é o requisito não-negociável do projeto — `detune` muda os dois juntos (é tipo acelerar um vinil).
@@ -159,7 +159,7 @@ Abre `http://localhost:5173` e importa seu primeiro `.zip`.
 
 ### Deploy (Vercel)
 
-Dois projetos Vercel a partir do mesmo repositório (`hub-ensaios-api`, `hub-ensaios-web`), cada um com `rootDirectory` apontando pro respectivo app. O projeto `hub-ensaios-api` precisa de um Postgres (Vercel Storage -> Postgres -> Connect to Project preenche `POSTGRES_URL`/`POSTGRES_URL_NON_POOLING` sozinho), um Blob store (`BLOB_READ_WRITE_TOKEN`) e `CRON_SECRET` (autoriza o Cron Job de limpeza de staging) nas suas environment variables; o projeto `hub-ensaios-web` só precisa que `apps/web/vercel.json` aponte o rewrite `/api/*` pra URL real de `hub-ensaios-api`.
+Dois projetos Vercel a partir do mesmo repositório (`hub-ensaios-api`, `hub-ensaios-web`), cada um com `rootDirectory` apontando pro respectivo app. O projeto `hub-ensaios-api` precisa de um banco Postgres conectado via **Storage -> Marketplace Database Providers** (Neon é o recomendado — mesmo provedor que a antiga "Vercel Postgres" nativa usava por baixo; Prisma Postgres e Supabase também funcionam, `getDatabaseOptions()` detecta o nome da env var independente do provedor), um Blob store (`BLOB_READ_WRITE_TOKEN`) e `CRON_SECRET` (autoriza o Cron Job de limpeza de staging); o projeto `hub-ensaios-web` só precisa que `apps/web/vercel.json` aponte o rewrite `/api/*` pra URL real de `hub-ensaios-api`.
 
 ## 📊 Status
 

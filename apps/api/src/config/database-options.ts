@@ -13,14 +13,33 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
  * Vercel abre seu próprio pool, e muitas instâncias concorrentes cada uma
  * com um pool grande esgotam o limite de conexões do Postgres gerenciado.
  */
+// A antiga "Vercel Postgres" nativa saiu do ar — hoje o marketplace de
+// Storage da Vercel só oferece provedores terceiros (Neon, Prisma Postgres,
+// Supabase...), cada um injetando a connection string num nome de env var
+// diferente ao conectar num projeto. Checa os nomes mais comuns em vez de
+// travar num só, pra funcionar sem passo manual não importa qual o usuário
+// escolher no dashboard.
+const POOLED_URL_ENV_VARS = ['POSTGRES_URL', 'DATABASE_URL'];
+const DIRECT_URL_ENV_VARS = [
+    'POSTGRES_URL_NON_POOLING',
+    'DATABASE_URL_UNPOOLED',
+    'DIRECT_URL',
+];
+
+function firstDefinedEnv(names: string[]): string | undefined {
+    for (const name of names) {
+        const value = process.env[name];
+        if (value) return value;
+    }
+    return undefined;
+}
+
 export function getDatabaseOptions() {
-    // Mesmo nome que a integração nativa Vercel Postgres injeta sozinha ao
-    // conectar o Storage num projeto (POSTGRES_URL/POSTGRES_URL_NON_POOLING)
-    // — usar esse nome em vez de um genérico DATABASE_URL evita qualquer
-    // passo manual de env var em produção.
-    const url = process.env.POSTGRES_URL;
+    const url = firstDefinedEnv(POOLED_URL_ENV_VARS);
     if (!url) {
-        throw new Error('POSTGRES_URL não definida.');
+        throw new Error(
+            `Nenhuma connection string de banco encontrada (esperava uma de: ${POOLED_URL_ENV_VARS.join(', ')}).`,
+        );
     }
 
     return {
@@ -49,6 +68,8 @@ export function getDatabaseOptions() {
  */
 export function getMigrationDatabaseUrl(): string {
     return (
-        process.env.POSTGRES_URL_NON_POOLING ?? process.env.POSTGRES_URL ?? ''
+        firstDefinedEnv(DIRECT_URL_ENV_VARS) ??
+        firstDefinedEnv(POOLED_URL_ENV_VARS) ??
+        ''
     );
 }
