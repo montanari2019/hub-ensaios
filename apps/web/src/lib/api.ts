@@ -51,13 +51,21 @@ export interface ConfirmImportInput {
 
 const API_BASE = '/api'
 
+// A API roda com maxDuration de 60s (apps/api/vercel.json) — esse timeout
+// cliente precisa ficar acima disso, senão desiste antes da própria função
+// ter chance de terminar (ou de a plataforma matá-la e devolver erro).
+const DEFAULT_TIMEOUT_MS = 20_000
+const IMPORT_PROCESSING_TIMEOUT_MS = 70_000
+
 export class ApiError extends Error {
   status?: number
+  isTimeout: boolean
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, isTimeout = false) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.isTimeout = isTimeout
   }
 }
 
@@ -65,14 +73,30 @@ interface ApiErrorBody {
   error?: { message?: string }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, init)
-  } catch {
+    response = await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError(
+        'O processamento demorou mais do que o esperado e foi interrompido. Tente novamente — se o arquivo for muito grande, considere dividir em partes menores.',
+        undefined,
+        true,
+      )
+    }
     throw new ApiError(
-      'Não foi possível conectar ao backend local. Verifique se ele está rodando (yarn dev).',
+      'Não foi possível conectar ao backend. Verifique sua conexão e tente novamente.',
     )
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   if (!response.ok) {
@@ -115,20 +139,30 @@ export function getImportPreview(importId: string): Promise<ApiImportPreview> {
   return request(`/tracks/import/${importId}`)
 }
 
-export async function startImport(file: File): Promise<ApiImportPreview> {
+export async function startImport(
+  file: File,
+  onUploadProgress?: (percent: number) => void,
+): Promise<ApiImportPreview> {
   // O .zip vai direto pro Blob a partir do browser (contorna o limite de
   // tamanho de body das funções serverless da Vercel) — o backend só recebe
   // a URL resultante em POST /tracks/import, nunca os bytes do arquivo.
   const blob = await upload(file.name, file, {
     access: 'private',
     handleUploadUrl: `${API_BASE}/tracks/import/authorize`,
+    onUploadProgress: onUploadProgress
+      ? (event) => onUploadProgress(event.percentage)
+      : undefined,
   })
 
-  return request('/tracks/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ blobUrl: blob.url, originalName: file.name }),
-  })
+  return request(
+    '/tracks/import',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blobUrl: blob.url, originalName: file.name }),
+    },
+    IMPORT_PROCESSING_TIMEOUT_MS,
+  )
 }
 
 export function confirmImport(

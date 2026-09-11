@@ -12,6 +12,7 @@ import { Badge, Button, Card } from '../../components'
 import { ApiError, deleteTrack, listTracks, startImport } from '../../lib/api'
 import { formatDuration, formatImportDate } from '../../lib/format'
 import { toTrack } from '../../lib/trackMappers'
+import type { CSSVarStyle } from '../../types/css'
 import type { Track } from '../../types'
 import styles from './TrackLibrary.module.css'
 
@@ -20,14 +21,20 @@ function describeError(error: unknown, fallback: string): string {
   return fallback
 }
 
+type ImportPhase =
+  | { status: 'idle' }
+  | { status: 'uploading'; percent: number }
+  | { status: 'processing' }
+  | { status: 'error'; message: string }
+
 export function TrackLibrary() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [tracks, setTracks] = useState<Track[] | null>(null)
   const [libraryError, setLibraryError] = useState<string | null>(null)
-  const [isImporting, setIsImporting] = useState(false)
-  const [importError, setImportError] = useState<string | null>(null)
+  const [importPhase, setImportPhase] = useState<ImportPhase>({ status: 'idle' })
+  const isImporting = importPhase.status === 'uploading' || importPhase.status === 'processing'
 
   const refreshTracks = useCallback(async () => {
     try {
@@ -44,7 +51,7 @@ export function TrackLibrary() {
   }, [refreshTracks])
 
   function handleImportClick() {
-    setImportError(null)
+    setImportPhase({ status: 'idle' })
     fileInputRef.current?.click()
   }
 
@@ -53,15 +60,22 @@ export function TrackLibrary() {
     event.target.value = ''
     if (!file) return
 
-    setIsImporting(true)
-    setImportError(null)
+    setImportPhase({ status: 'uploading', percent: 0 })
     try {
-      const preview = await startImport(file)
+      const preview = await startImport(file, (percent) => {
+        // 100% de upload não quer dizer "pronto" — o backend ainda extrai
+        // os canais do zip, então esse ponto já é a virada pra "processando".
+        setImportPhase(
+          percent >= 100 ? { status: 'processing' } : { status: 'uploading', percent },
+        )
+      })
+      setImportPhase({ status: 'idle' })
       navigate(`/import/${preview.importId}`, { state: { preview } })
     } catch (error) {
-      setImportError(describeError(error, 'Não foi possível importar essa track. Tente novamente.'))
-    } finally {
-      setIsImporting(false)
+      setImportPhase({
+        status: 'error',
+        message: describeError(error, 'Não foi possível importar essa track. Tente novamente.'),
+      })
     }
   }
 
@@ -82,6 +96,12 @@ export function TrackLibrary() {
 
   const trackCount = tracks?.length ?? 0
 
+  function importButtonLabel(idleLabel: string): string {
+    if (importPhase.status === 'uploading') return `Enviando… ${importPhase.percent}%`
+    if (importPhase.status === 'processing') return 'Processando…'
+    return idleLabel
+  }
+
   return (
     <div className={styles.screen}>
       <header className={styles.header}>
@@ -99,7 +119,7 @@ export function TrackLibrary() {
 
         <div className={styles.importArea}>
           <Button icon="upload" onClick={handleImportClick} disabled={isImporting}>
-            {isImporting ? 'Importando…' : 'Importar track'}
+            {importButtonLabel('Importar track')}
           </Button>
           <input
             ref={fileInputRef}
@@ -108,7 +128,24 @@ export function TrackLibrary() {
             className={styles.hiddenInput}
             onChange={handleFileSelected}
           />
-          {importError ? <span className={styles.importErrorText}>{importError}</span> : null}
+          {importPhase.status === 'uploading' ? (
+            <div className={styles.importProgress}>
+              <span className={styles.importProgressBar}>
+                <span
+                  className={styles.importProgressFill}
+                  style={{ '--progress': `${importPhase.percent}%` } as CSSVarStyle}
+                />
+              </span>
+              <span className={styles.importProgressLabel}>{importPhase.percent}%</span>
+            </div>
+          ) : importPhase.status === 'processing' ? (
+            <div className={styles.importProgress}>
+              <span className={styles.importSpinner} aria-hidden="true" />
+              <span className={styles.importProgressLabel}>Extraindo os canais do zip…</span>
+            </div>
+          ) : importPhase.status === 'error' ? (
+            <span className={styles.importErrorText}>{importPhase.message}</span>
+          ) : null}
         </div>
       </header>
 
@@ -133,7 +170,7 @@ export function TrackLibrary() {
             Suba um .zip com os canais de uma música para começar a ensaiar.
           </p>
           <Button icon="upload" onClick={handleImportClick} disabled={isImporting}>
-            {isImporting ? 'Importando…' : 'Importar primeira track'}
+            {importButtonLabel('Importar primeira track')}
           </Button>
         </div>
       ) : (

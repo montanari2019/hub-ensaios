@@ -72,6 +72,51 @@
   color: var(--color-danger);
 }
 
+.importProgress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.importProgressBar {
+  width: 120px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.importProgressFill {
+  height: 100%;
+  width: var(--progress, 0%);
+  background: var(--color-accent);
+  transition: width var(--duration-fast) var(--ease-standard);
+}
+
+.importProgressLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.importSpinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: import-spin 0.8s linear infinite;
+}
+
+@keyframes import-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .empty {
   display: flex;
   flex-direction: column;
