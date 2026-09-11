@@ -34,9 +34,27 @@ function firstDefinedEnv(names: string[]): string | undefined {
     return undefined;
 }
 
+/**
+ * Remove `sslmode` da query string. Versões recentes do `pg` tratam
+ * `sslmode=require` (comum nas URLs que Neon/Supabase geram) como alias de
+ * `verify-full` e isso VENCE o `ssl: { rejectUnauthorized: false }` passado
+ * explícito nas options — resultando em "self-signed certificate in
+ * certificate chain" contra pooler/proxy dessas plataformas. Deixamos só o
+ * objeto `ssl` abaixo decidir o modo de TLS, não a query string.
+ */
+function stripSslMode(url: string): string {
+    try {
+        const parsed = new URL(url);
+        parsed.searchParams.delete('sslmode');
+        return parsed.toString();
+    } catch {
+        return url;
+    }
+}
+
 export function getDatabaseOptions() {
-    const url = firstDefinedEnv(POOLED_URL_ENV_VARS);
-    if (!url) {
+    const rawUrl = firstDefinedEnv(POOLED_URL_ENV_VARS);
+    if (!rawUrl) {
         throw new Error(
             `Nenhuma connection string de banco encontrada (esperava uma de: ${POOLED_URL_ENV_VARS.join(', ')}).`,
         );
@@ -44,7 +62,7 @@ export function getDatabaseOptions() {
 
     return {
         type: 'postgres' as const,
-        url,
+        url: stripSslMode(rawUrl),
         ssl:
             process.env.NODE_ENV === 'production'
                 ? { rejectUnauthorized: false }
@@ -67,9 +85,9 @@ export function getDatabaseOptions() {
  * Vercel Postgres) — usa a connection string non-pooling quando disponível.
  */
 export function getMigrationDatabaseUrl(): string {
-    return (
+    const url =
         firstDefinedEnv(DIRECT_URL_ENV_VARS) ??
         firstDefinedEnv(POOLED_URL_ENV_VARS) ??
-        ''
-    );
+        '';
+    return url ? stripSslMode(url) : url;
 }
