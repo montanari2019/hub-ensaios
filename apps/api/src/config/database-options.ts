@@ -14,9 +14,13 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
  * com um pool grande esgotam o limite de conexões do Postgres gerenciado.
  */
 export function getDatabaseOptions() {
-    const url = process.env.DATABASE_URL;
+    // Mesmo nome que a integração nativa Vercel Postgres injeta sozinha ao
+    // conectar o Storage num projeto (POSTGRES_URL/POSTGRES_URL_NON_POOLING)
+    // — usar esse nome em vez de um genérico DATABASE_URL evita qualquer
+    // passo manual de env var em produção.
+    const url = process.env.POSTGRES_URL;
     if (!url) {
-        throw new Error('DATABASE_URL não definida.');
+        throw new Error('POSTGRES_URL não definida.');
     }
 
     return {
@@ -45,6 +49,6 @@ export function getDatabaseOptions() {
  */
 export function getMigrationDatabaseUrl(): string {
     return (
-        process.env.DATABASE_URL_NON_POOLING ?? process.env.DATABASE_URL ?? ''
+        process.env.POSTGRES_URL_NON_POOLING ?? process.env.POSTGRES_URL ?? ''
     );
 }

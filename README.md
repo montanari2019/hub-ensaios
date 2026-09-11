@@ -130,7 +130,7 @@ yarn install
 # 2. Configurar variáveis de ambiente do backend
 cp apps/api/.env.example apps/api/.env
 # Preenche BLOB_READ_WRITE_TOKEN com o token do store de dev/preview
-# (Vercel Dashboard -> Storage -> Blob), os defaults de DATABASE_URL já
+# (Vercel Dashboard -> Storage -> Blob), os defaults de POSTGRES_URL já
 # apontam pro Postgres do Docker Compose abaixo.
 
 # 3. Subir o Postgres local (mesma engine da produção)
@@ -159,7 +159,7 @@ Abre `http://localhost:5173` e importa seu primeiro `.zip`.
 
 ### Deploy (Vercel)
 
-Dois projetos Vercel a partir do mesmo repositório, cada um com `rootDirectory` apontando pro respectivo app (`apps/web`, `apps/api`). O projeto da API precisa de `DATABASE_URL`/`DATABASE_URL_NON_POOLING` (Vercel Postgres), `BLOB_READ_WRITE_TOKEN` (Vercel Blob) e `CRON_SECRET` (autoriza o Cron Job de limpeza de staging) nas suas environment variables; o projeto do web só precisa que `apps/web/vercel.json` aponte o rewrite `/api/*` pra URL real do projeto da API depois do primeiro deploy dela.
+Dois projetos Vercel a partir do mesmo repositório (`hub-ensaios-api`, `hub-ensaios-web`), cada um com `rootDirectory` apontando pro respectivo app. O projeto `hub-ensaios-api` precisa de um Postgres (Vercel Storage -> Postgres -> Connect to Project preenche `POSTGRES_URL`/`POSTGRES_URL_NON_POOLING` sozinho), um Blob store (`BLOB_READ_WRITE_TOKEN`) e `CRON_SECRET` (autoriza o Cron Job de limpeza de staging) nas suas environment variables; o projeto `hub-ensaios-web` só precisa que `apps/web/vercel.json` aponte o rewrite `/api/*` pra URL real de `hub-ensaios-api`.
 
 ## 📊 Status
 

@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/:path*",
-            "destination": "https://REPLACE_WITH_API_PROJECT_URL/:path*"
+            "destination": "https://hub-ensaios-api.vercel.app/:path*"
         },
         { "source": "/(.*)", "destination": "/index.html" }
     ]
